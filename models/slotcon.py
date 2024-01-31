@@ -78,9 +78,31 @@ class SemanticGrouping(nn.Module):
     def forward(self, x):
         x_prev = x
         slots = self.slot_embed(torch.arange(0, self.num_slots, device=x.device)).unsqueeze(0).repeat(x.size(0), 1, 1)
+
         dots = torch.einsum('bkd,bdhw->bkhw', F.normalize(slots, dim=2), F.normalize(x, dim=1))
         attn = (dots / self.temp).softmax(dim=1) + self.eps
         slots = torch.einsum('bdhw,bkhw->bkd', x_prev, attn / attn.sum(dim=(2, 3), keepdim=True))
+
+        # if x_prev.ndim == 4:
+        #     dots = torch.einsum('bkd,bdhw->bkhw', F.normalize(slots, dim=2), F.normalize(x, dim=1))
+        # elif x_prev.ndim == 3:
+        #     # In our vit impl, the output shape is (B, N, C)
+        #     x_prev = x_prev.permute(0, 2, 1)
+        #     x = x.permute(0, 2, 1)
+        #     dots = torch.einsum('bkd,bdn->bkn', F.normalize(slots, dim=2), F.normalize(x, dim=1))
+        # else:
+        #     raise NotImplementedError('')
+        
+        # attn = (dots / self.temp).softmax(dim=1) + self.eps
+
+        # if x_prev.ndim == 4:
+        #     slots = torch.einsum('bdhw,bkhw->bkd', x_prev, attn / attn.sum(dim=(2, 3), keepdim=True))
+        # elif x_prev.ndim == 3:
+        #     slots = torch.einsum('bdn,bkn->bkd', x_prev, attn / attn.sum(dim=2, keepdim=True))
+        # else:
+        #     raise NotImplementedError('')
+            
+        
         return slots, dots
 
 class SlotCon(nn.Module):
@@ -92,8 +114,11 @@ class SlotCon(nn.Module):
         self.teacher_momentum = args.teacher_momentum
 
         self.num_channels = 512 if args.arch in ('resnet18', 'resnet34') else 2048
-        self.encoder_q = encoder(head_type='early_return')
-        self.encoder_k = encoder(head_type='early_return')
+        # self.num_channels = 512 if 'resnet18' or 'resnet34'; 2048 if 'resnet50' or 'resnet101'; 384 if 'vit'
+        self.num_channels = 384 if args.arch in ('vit_small') else self.num_channels
+        
+        self.encoder_q = encoder(head_type='early_return', drop_path_rate=0.1)
+        self.encoder_k = encoder(head_type='early_return', drop_path_rate=0.1)
 
         for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
             param_k.data.copy_(param_q.data)  # initialize
@@ -105,7 +130,10 @@ class SlotCon(nn.Module):
         self.group_loss_weight = args.group_loss_weight
         self.student_temp = args.student_temp
         self.teacher_temp = args.teacher_temp
-            
+        # if 'vit' in args.arch:
+        #     self.projector_q = DINOHead(self.num_channels, hidden_dim=self.dim_hidden, bottleneck_dim=self.dim_out)
+        #     self.projector_k = DINOHead(self.num_channels, hidden_dim=self.dim_hidden, bottleneck_dim=self.dim_out)
+        # else:            
         self.projector_q = DINOHead2d(self.num_channels, hidden_dim=self.dim_hidden, bottleneck_dim=self.dim_out)
         self.projector_k = DINOHead2d(self.num_channels, hidden_dim=self.dim_hidden, bottleneck_dim=self.dim_out)
 
@@ -242,7 +270,10 @@ class SlotConEval(nn.Module):
         self.dim_out = args.dim_out
 
         self.num_channels = 512 if args.arch in ('resnet18', 'resnet34') else 2048
-        self.encoder_k = encoder(head_type='early_return')
+        # self.num_channels = 512 if 'resnet18' or 'resnet34'; 2048 if 'resnet50' or 'resnet101'; 384 if 'vit'
+        self.num_channels = 384 if args.arch in ('vit_small') else self.num_channels
+           
+        self.encoder_k = encoder(head_type='early_return')        
         for param_k in self.encoder_k.parameters():
             param_k.requires_grad = False  # not update by gradient
 

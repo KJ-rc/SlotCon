@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
+from models import vision_transformer as vit
 
 from data.datasets import ImageFolder
 from models import resnet
@@ -18,7 +19,11 @@ def denorm(img):
     return img.permute(1, 2, 0).cpu().type(torch.uint8)
 
 def get_model(args):
-    encoder = resnet.__dict__[args.arch]
+    if 'vit' in args.arch:
+        encoder = vit.__dict__[args.arch]
+    else:
+        encoder = resnet.__dict__[args.arch]
+    # encoder = resnet.__dict__[args.arch]
     model = SlotConEval(encoder, args)
     checkpoint = torch.load(args.model_path, map_location='cpu')
     weights = {k.replace('module.', ''):v for k, v in checkpoint['model'].items()}
@@ -93,6 +98,7 @@ if __name__=='__main__':
 
     dataset = ImageFolder(args.dataset, args.data_dir, transform)
     model = get_model(args).cuda()
+    print(model)
 
     dots, idxs = prepare_knn(model, dataset, args)
     if args.sampling > 0:

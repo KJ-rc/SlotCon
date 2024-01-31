@@ -15,6 +15,7 @@ from data.datasets import ImageFolder
 from data.transforms import CustomDataAugmentation
 
 from models import resnet
+from models import vision_transformer as vit
 from models.slotcon import SlotCon
 from utils.lars import LARS
 from utils.logger import setup_logger
@@ -22,6 +23,9 @@ from utils.lr_scheduler import get_scheduler
 from utils.util import AverageMeter
 
 model_names = sorted(name for name in resnet.__all__ if name.islower() and callable(resnet.__dict__[name]))
+vit_names = sorted(name for name in vit.__all__ if name.islower() and callable(vit.__dict__[name]))
+# Concatenate two lists
+model_names.extend(vit_names)
 
 def get_parser():
     parser = argparse.ArgumentParser('SlotCon')
@@ -47,7 +51,7 @@ def get_parser():
     parser.add_argument('--batch-size', type=int, default=512, help='total batch size')
     parser.add_argument('--base-lr', type=float, default=1.0,
                         help='base learning when batch size = 256. final lr is determined by linear scale')
-    parser.add_argument('--optimizer', type=str, choices=['sgd', 'lars'], default='sgd', help='optimizer choice')
+    parser.add_argument('--optimizer', type=str, choices=['sgd', 'lars', 'adamw'], default='sgd', help='optimizer choice')
     parser.add_argument('--warmup-epoch', type=int, default=5, help='warmup epoch')
     parser.add_argument('--warmup-multiplier', type=int, default=100, help='warmup multiplier')
     parser.add_argument('--weight-decay', type=float, default=1e-5, help='weight decay')
@@ -71,7 +75,10 @@ def get_parser():
     return args 
 
 def build_model(args):
-    encoder = resnet.__dict__[args.arch]
+    if 'vit' in args.arch:
+        encoder = vit.__dict__[args.arch]
+    else:
+        encoder = resnet.__dict__[args.arch]
     model = SlotCon(encoder, args).cuda()
 
     if args.optimizer == 'sgd':
@@ -85,6 +92,11 @@ def build_model(args):
             model.parameters(),
             lr=args.batch_size * args.world_size / 256 * args.base_lr,
             momentum=args.momentum,
+            weight_decay=args.weight_decay)
+    elif args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=args.batch_size * args.world_size / 256 * args.base_lr,
             weight_decay=args.weight_decay)
     else:
         raise NotImplementedError
